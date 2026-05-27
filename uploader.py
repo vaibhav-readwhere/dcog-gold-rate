@@ -5,6 +5,9 @@ Deletes the local file after a successful upload.
 import os
 import subprocess
 import json
+from dotenv import load_dotenv
+
+load_dotenv()
 
 
 def upload_video(file_path: str) -> str:
