@@ -26,9 +26,11 @@ SAMPLE_RATES = {
 
 def main():
     parser = argparse.ArgumentParser(description='Generate daily gold rates video')
-    parser.add_argument('--output', '-o', help='Output MP4 path')
-    parser.add_argument('--dry-run', action='store_true', help='Print rates only, no video')
-    parser.add_argument('--mock',    action='store_true', help='Use sample rates (no API call)')
+    parser.add_argument('--output',   '-o', help='Output MP4 path')
+    parser.add_argument('--dry-run',  action='store_true', help='Print rates only, no video')
+    parser.add_argument('--mock',     action='store_true', help='Use sample rates (no API call)')
+    parser.add_argument('--bg-index', type=int, default=-1,
+                        help='Force a specific background video (0-based index). Default: rotate by day.')
     args = parser.parse_args()
 
     # ── Fetch rates ───────────────────────────────────────────────────────────
@@ -77,7 +79,7 @@ def main():
         output_path = os.path.join(config.OUTPUT_DIR, f'gold_rates_{date_tag}.mp4')
 
     print(f"\nGenerating video → {output_path}")
-    generate_video(rates, output_path)
+    generate_video(rates, output_path, bg_index=args.bg_index)
     print(f"\nDone: {output_path}")
 
 

@@ -119,7 +119,12 @@ def _pio(s, e, t):
 
 # ── Pre-loaded state (shared across frames) ───────────────────────────────────
 class _State:
-    def __init__(self):
+    def __init__(self, bg_index: int = -1):
+        """
+        bg_index: which background video to use (0-based).
+                  -1 (default) = rotate automatically by day-of-year.
+        """
+        self._bg_index = bg_index
         self._tex()
         self._logo()
 
@@ -131,8 +136,12 @@ class _State:
         import glob as _glob
         vids = sorted(_glob.glob(os.path.join(_A, 'dubai-background-video*.mp4')))
         if vids:
-            # Use ordinal day so the same video runs all day and rotates each morning
-            idx      = datetime.today().toordinal() % len(vids)
+            # Use ordinal day so the same video runs all day and rotates each morning.
+            # bg_index override lets callers force a specific video (e.g. sample generation).
+            if self._bg_index >= 0:
+                idx = self._bg_index % len(vids)
+            else:
+                idx = datetime.today().toordinal() % len(vids)
             vid_path = vids[idx]
             self.vid   = mpy.VideoFileClip(vid_path)
             self.has_v = True
@@ -540,9 +549,9 @@ def _make_audio(duration: float = DURATION, sr: int = 44100) -> np.ndarray:
 
 
 # ── public API ────────────────────────────────────────────────────────────────
-def generate_video(rates: dict, output_path: str) -> str:
+def generate_video(rates: dict, output_path: str, bg_index: int = -1) -> str:
     os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
-    st = _State()
+    st = _State(bg_index=bg_index)
 
     def make_frame(t: float) -> np.ndarray:
         return _frame(t, rates, st)
