@@ -1,0 +1,66 @@
+name: Daily Gold Rates Video
+
+on:
+  schedule:
+    - cron: '0 4 * * *'   # 8:00 AM UAE time (UTC+4)
+  workflow_dispatch:        # allow manual trigger from GitHub UI for testing
+
+jobs:
+  generate-and-post:
+    runs-on: ubuntu-latest
+
+    steps:
+      # ── 1. Checkout code ────────────────────────────────────────────────────
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # ── 2. Python setup with pip cache ──────────────────────────────────────
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      # ── 3. System deps (ffmpeg for video encoding) ───────────────────────────
+      - name: Install ffmpeg
+        run: sudo apt-get update -qq && sudo apt-get install -y ffmpeg
+
+      # ── 4. Python packages ───────────────────────────────────────────────────
+      - name: Install Python dependencies
+        run: pip install -r requirements.txt
+
+      # ── 5. Write .env from GitHub Secrets ───────────────────────────────────
+      - name: Create .env
+        run: |
+          cat > .env << 'EOF'
+          GOLD_API_URL=https://api-dcog.sortd.pro/v1/rates
+          GOLD_API_KEY=${{ secrets.GOLD_API_KEY }}
+          GOLD_API_EMAIL=${{ secrets.GOLD_API_EMAIL }}
+          GOLD_API_PASSWORD=${{ secrets.GOLD_API_PASSWORD }}
+          GOLD_BEARER_TOKEN=
+          OUTPUT_DIR=output
+          EOF
+
+      # ── 6. Login to get fresh Bearer token (expires every 24h) ──────────────
+      - name: Authenticate with Gold API
+        run: python auth.py
+
+      # ── 7. Generate video with live rates ────────────────────────────────────
+      - name: Generate video
+        run: python main.py
+
+      # ── 8. Save video as artifact (downloadable from GitHub for 7 days) ──────
+      - name: Upload video artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: gold-rates-${{ github.run_id }}
+          path: output/*.mp4
+          retention-days: 7
+
+      # ── 9. TODO: Upload to Cloudinary → Post to Instagram (Phase 2) ──────────
+      # - name: Post to Instagram
+      #   run: python post_instagram.py
+      #   env:
+      #     CLOUDINARY_URL: ${{ secrets.CLOUDINARY_URL }}
+      #     INSTAGRAM_TOKEN: ${{ secrets.INSTAGRAM_TOKEN }}
+      #     INSTAGRAM_ACCOUNT_ID: ${{ secrets.INSTAGRAM_ACCOUNT_ID }}

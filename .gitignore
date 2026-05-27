@@ -1,0 +1,14 @@
+# Credentials — never commit
+.env
+
+# Generated videos
+output/
+
+# Large unused asset
+assets/dubai-background-video.mp4
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+.DS_Store
