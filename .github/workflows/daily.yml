@@ -38,6 +38,9 @@ jobs:
           GOLD_API_EMAIL=${{ secrets.GOLD_API_EMAIL }}
           GOLD_API_PASSWORD=${{ secrets.GOLD_API_PASSWORD }}
           GOLD_BEARER_TOKEN=
+          CLOUDINARY_CLOUD_NAME=${{ secrets.CLOUDINARY_CLOUD_NAME }}
+          CLOUDINARY_API_KEY=${{ secrets.CLOUDINARY_API_KEY }}
+          CLOUDINARY_API_SECRET=${{ secrets.CLOUDINARY_API_SECRET }}
           OUTPUT_DIR=output
           EOF
 
@@ -49,18 +52,25 @@ jobs:
       - name: Generate video
         run: python main.py
 
-      # ── 8. Save video as artifact (downloadable from GitHub for 7 days) ──────
-      - name: Upload video artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: gold-rates-${{ github.run_id }}
-          path: output/*.mp4
-          retention-days: 7
+      # ── 8. Upload to Cloudinary, delete local file ───────────────────────────
+      - name: Upload to Cloudinary
+        run: |
+          python - << 'EOF'
+          import glob, os
+          from uploader import upload_video
+          videos = glob.glob("output/*.mp4")
+          if not videos:
+              raise FileNotFoundError("No MP4 found in output/")
+          url = upload_video(videos[0])
+          # Save URL for next step
+          with open("cloudinary_url.txt", "w") as f:
+              f.write(url)
+          print(f"Video URL saved: {url}")
+          EOF
 
-      # ── 9. TODO: Upload to Cloudinary → Post to Instagram (Phase 2) ──────────
+      # ── 9. TODO: Post to Instagram (Phase 3 — needs Instagram token) ─────────
       # - name: Post to Instagram
       #   run: python post_instagram.py
       #   env:
-      #     CLOUDINARY_URL: ${{ secrets.CLOUDINARY_URL }}
       #     INSTAGRAM_TOKEN: ${{ secrets.INSTAGRAM_TOKEN }}
       #     INSTAGRAM_ACCOUNT_ID: ${{ secrets.INSTAGRAM_ACCOUNT_ID }}
