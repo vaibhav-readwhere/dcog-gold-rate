@@ -125,14 +125,21 @@ class _State:
 
     # ── background (video → static texture → gradient fallback) ────────────
     def _tex(self):
-        # Priority 1: background video
-        vid_path = os.path.join(_A, 'dubai-background-video.mp4')
-        if os.path.exists(vid_path):
+        # Priority 1: background videos — rotate daily
+        # Naming: dubai-background-video.mp4, dubai-background-video-2.mp4, …
+        # Add more files with the same prefix and they are picked up automatically.
+        import glob as _glob
+        vids = sorted(_glob.glob(os.path.join(_A, 'dubai-background-video*.mp4')))
+        if vids:
+            # Use ordinal day so the same video runs all day and rotates each morning
+            idx      = datetime.today().toordinal() % len(vids)
+            vid_path = vids[idx]
             self.vid   = mpy.VideoFileClip(vid_path)
             self.has_v = True
             self.has_t = False
             self.tex   = None
-            print(f"[bg] dubai-background-video.mp4  "
+            print(f"[bg] {os.path.basename(vid_path)}  "
+                  f"(video {idx+1}/{len(vids)})  "
                   f"({self.vid.duration:.1f}s  {self.vid.size[0]}×{self.vid.size[1]})")
             return
 
