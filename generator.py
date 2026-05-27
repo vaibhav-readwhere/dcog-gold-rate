@@ -195,36 +195,17 @@ class _State:
                      self.vid.duration - 0.04)
             c  = self.vid.get_frame(vt).astype(np.float32)   # (H, W, 3)
 
-            # ── Contrast + vibrance boost (counters Instagram compression) ───
-            n = c / 255.0
-            # S-curve contrast: pulls shadows darker, highlights brighter
-            n = np.clip((n - 0.5) * 1.15 + 0.5, 0, 1)
-            # Saturation boost: push colours away from grey
-            luma = (0.299*n[:,:,0] + 0.587*n[:,:,1] + 0.114*n[:,:,2])[:,:,None]
-            n = np.clip(luma + (n - luma) * 1.25, 0, 1)
-            # Golden tone — strong warm-gold grade (red+green lift, blue cut)
-            n[:,:,0] = np.clip(n[:,:,0] * 1.12, 0, 1)   # red  ×1.12
-            n[:,:,1] = np.clip(n[:,:,1] * 1.07, 0, 1)   # green ×1.07  (red+green = gold/amber)
-            n[:,:,2] = np.clip(n[:,:,2] * 0.88, 0, 1)   # blue  ×0.88  (cut cool/blue tones)
-            c = n * 255.0
+            # ── Translucent dark base layer (keeps video visible) ───────────
+            c *= 0.55
 
-            # ── Translucent black base layer (keeps video visible) ───────────
-            c *= 0.52
-
-            # ── Top-to-mid gradient  (strongest at top where text lives) ─────
-            # Fades from -35% extra darkness at y=0 down to 0 at y=70% height
+            # ── Top gradient: extra darkness behind text area (top 70%) ──────
             yi    = np.linspace(0, 1, H, dtype=np.float32)
             tgrad = np.clip(1.0 - yi / 0.70, 0, 1) * 0.35
             c    *= (1 - tgrad[:, None, None])
 
-            # ── Bottom gradient  (subtle dark strip behind tagline/URL) ──────
+            # ── Bottom gradient: dark strip behind tagline / URL ─────────────
             bgrad = np.clip((yi - 0.80) / 0.20, 0, 1) * 0.25
             c    *= (1 - bgrad[:, None, None])
-
-            # ── Additive golden tint (applied after darkening so it shows in shadows)
-            c[:,:,0] = np.clip(c[:,:,0] + 18, 0, 255)  # +18 red
-            c[:,:,1] = np.clip(c[:,:,1] + 10, 0, 255)  # +10 green  → warm gold
-            c[:,:,2] = np.clip(c[:,:,2] -  8, 0, 255)  # − 8 blue   → cut cool
 
 
         elif self.has_t:
