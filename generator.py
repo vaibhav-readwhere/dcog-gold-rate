@@ -123,19 +123,35 @@ class _State:
         self._tex()
         self._logo()
 
-    # ── background texture ──────────────────────────────────────────────────
+    # ── background (video → static texture → gradient fallback) ────────────
     def _tex(self):
+        # Priority 1: background video
+        vid_path = os.path.join(_A, 'dubai-background-video.mp4')
+        if os.path.exists(vid_path):
+            self.vid   = mpy.VideoFileClip(vid_path)
+            self.has_v = True
+            self.has_t = False
+            self.tex   = None
+            print(f"[bg] dubai-background-video.mp4  "
+                  f"({self.vid.duration:.1f}s  {self.vid.size[0]}×{self.vid.size[1]})")
+            return
+
+        # Priority 2: static gold texture (panning)
+        self.has_v = False
+        self.vid   = None
         for n in ('bg_gold.jpg','bg_gold.png','background.jpg','background.png'):
             p = os.path.join(_A, n)
             if not os.path.exists(p): continue
             tw, th = int(VIDEO_W*1.38), int(VIDEO_H*1.38)
-            t = Image.open(p).convert('RGB').resize((tw,th), Image.LANCZOS)
-            self.tex   = np.array(t, dtype=np.float32)
+            img = Image.open(p).convert('RGB').resize((tw,th), Image.LANCZOS)
+            self.tex   = np.array(img, dtype=np.float32)
             self.px    = tw - VIDEO_W
             self.py    = th - VIDEO_H
             self.has_t = True
             print(f"[bg] {n}  ({tw}×{th})")
             return
+
+        # Priority 3: gradient
         self.has_t = False; self.tex = None
         print("[bg] no texture — using gradient")
 
@@ -175,41 +191,59 @@ class _State:
         fi   = _p(*_BG_IN, t)
         norm = t / DURATION
 
-        if self.has_t:
-            # slow diagonal pan
+        if self.has_v:
+            # ── Video background ─────────────────────────────────────────────
+            # Slow-motion remap: stretch 11.5s source to fill 13.0s output
+            vt = min(t * (self.vid.duration / DURATION),
+                     self.vid.duration - 0.04)
+            c  = self.vid.get_frame(vt).astype(np.float32)   # (H, W, 3)
+
+            # ── Translucent black base layer (keeps video visible) ───────────
+            c *= 0.48
+
+            # ── Top-to-mid gradient  (strongest at top where text lives) ─────
+            # Fades from -35% extra darkness at y=0 down to 0 at y=70% height
+            yi    = np.linspace(0, 1, H, dtype=np.float32)
+            tgrad = np.clip(1.0 - yi / 0.70, 0, 1) * 0.35
+            c    *= (1 - tgrad[:, None, None])
+
+            # ── Bottom gradient  (subtle dark strip behind tagline/URL) ──────
+            bgrad = np.clip((yi - 0.80) / 0.20, 0, 1) * 0.25
+            c    *= (1 - bgrad[:, None, None])
+
+        elif self.has_t:
+            # ── Static texture (panning) ─────────────────────────────────────
             px = int(norm * self.px * 0.65)
             py = int(norm * self.py * 0.35)
             c  = self.tex[py:py+H, px:px+W].copy()
-
-            # dark overlay — 60 % black (× 0.40)
             c *= 0.40
+            yi    = np.linspace(0, 1, H, dtype=np.float32)
+            extra = np.clip(1 - yi / 0.45, 0, 1) * 0.30
+            c    *= (1 - extra[:, None, None])
 
-            # extra darken on top-40 % for text clarity
-            yi = np.linspace(0,1,H,dtype=np.float32)
-            extra = np.clip(1-yi/0.45, 0, 1)*0.30
-            c *= (1-extra[:,None,None])
         else:
+            # ── Navy gradient fallback ────────────────────────────────────────
             yi = np.linspace(0,1,H,dtype=np.float32)
             r  = 8+5*yi; g = 11+6*yi; b = 22+11*yi
             c  = np.stack([np.broadcast_to(r[:,None],(H,W)),
                            np.broadcast_to(g[:,None],(H,W)),
                            np.broadcast_to(b[:,None],(H,W))], 2).copy()
             gx,gy = W*.5,H*.90
-            xi     = np.arange(W,dtype=np.float32)[None,:]
-            yy     = np.arange(H,dtype=np.float32)[:,None]
-            dist   = np.sqrt(((xi-gx)/(W*.52))**2+((yy-gy)/(H*.26))**2)
-            gl     = np.clip(1.25-dist,0,1)**2.5
+            xi    = np.arange(W,dtype=np.float32)[None,:]
+            yy    = np.arange(H,dtype=np.float32)[:,None]
+            dist  = np.sqrt(((xi-gx)/(W*.52))**2+((yy-gy)/(H*.26))**2)
+            gl    = np.clip(1.25-dist,0,1)**2.5
             c[:,:,0] = np.clip(c[:,:,0]+gl*95,0,255)
             c[:,:,1] = np.clip(c[:,:,1]+gl*52,0,255)
             c[:,:,2] = np.clip(c[:,:,2]+gl* 3,0,255)
 
-        # vignette
-        xi = np.arange(W,dtype=np.float32)[None,:]/(W-1)
-        yi2= np.arange(H,dtype=np.float32)[:,None]/(H-1)
-        v  = np.clip(((xi-.5)*2)**2+((yi2-.5)*2)**2,0,1)*0.20
-        c *= (1-v[:,:,None])
+        # ── Vignette (all paths) ─────────────────────────────────────────────
+        xi  = np.arange(W, dtype=np.float32)[None,:] / (W-1)
+        yi2 = np.arange(H, dtype=np.float32)[:,None] / (H-1)
+        v   = np.clip(((xi-.5)*2)**2 + ((yi2-.5)*2)**2, 0, 1) * 0.20
+        c  *= (1 - v[:,:,None])
 
-        return np.clip(c*fi, 0, 255).astype(np.uint8)
+        return np.clip(c * fi, 0, 255).astype(np.uint8)
 
     # ── logo at target height, alpha ────────────────────────────────────────
     def logo_img(self, h: int, alpha: float = 1.0) -> Optional[Image.Image]:
@@ -536,4 +570,9 @@ def generate_video(rates: dict, output_path: str) -> str:
                          audio=True, audio_codec='aac',
                          ffmpeg_params=['-pix_fmt','yuv420p'],
                          logger=None)
+
+    # Release background video resource
+    if getattr(st, 'has_v', False) and st.vid:
+        st.vid.close()
+
     return output_path
