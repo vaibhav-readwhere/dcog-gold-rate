@@ -24,7 +24,7 @@ FPS      = 24
 DURATION = 13.0
 
 # ── Instagram safe zone ───────────────────────────────────────────────────────
-SAFE_T, SAFE_B, SAFE_L, SAFE_R = 170, 1530, 65, 875
+SAFE_T, SAFE_B, SAFE_L, SAFE_R = 170, 1530, 95, 875
 
 # ── Palette ───────────────────────────────────────────────────────────────────
 GOLD        = (218, 165,  18)
@@ -42,15 +42,15 @@ W_REG, W_SB, W_BOLD, W_EB = 400, 600, 700, 800
 
 # ── Layout ────────────────────────────────────────────────────────────────────
 LOGO_Y        = SAFE_T
-LOGO_CORNER_H = 132          # normal size in corner  (110 × 1.2 = 20 % bigger)
-LOGO_INTRO_H  = 260          # large during intro / outro
-LOGO_MAX_W    = 620          # max width (intro logo can be up to 57 % of frame)
+LOGO_CORNER_H = 200          # full uncropped canvas height in corner
+LOGO_INTRO_H  = 400          # full uncropped canvas height for intro / outro
+LOGO_MAX_W    = 700          # max width
 
 TITLE_Y  = LOGO_Y + LOGO_CORNER_H + 30    # ≈ 332
 SUBT_Y   = TITLE_Y + 82   # space below title (top padding for subtitle)
 DATE_Y   = SUBT_Y  + 62   # space below subtitle (bottom padding)
 CARD_Y   = DATE_Y  + 52
-ROW_H    = 144
+ROW_H    = 132
 ROWS     = ['24K', '22K', '21K', '18K', '14K']
 CARD_H   = len(ROWS) * ROW_H + 50         # 770
 CARD_B   = CARD_Y + CARD_H
@@ -157,31 +157,12 @@ class _State:
 
     # ── logo ────────────────────────────────────────────────────────────────
     def _logo(self):
-        for n in ('logo-dark.png','logo.png','logo.jpg'):
+        # Use logo exactly as-is — no pixel manipulation of any kind.
+        for n in ('logo-dark-2.png', 'logo-dark.png', 'logo.png', 'logo.jpg'):
             p = os.path.join(_A, n)
             if not os.path.exists(p): continue
-            raw = Image.open(p).convert('RGBA')
-            d   = np.array(raw, dtype=np.float32)
-
-            if n == 'logo-dark.png':
-                # Already has transparent bg — designed for dark backgrounds.
-                # White elements are intentional logo text; don't remove them.
-                pass
-            else:
-                # Light-background logos: remove white / near-white bg
-                avg = (d[:,:,0]+d[:,:,1]+d[:,:,2])/3
-                d[:,:,3] = np.where(avg > 218, 0,
-                           np.where(avg > 195, (218-avg)*(255/23), d[:,:,3]))
-
-            img = Image.fromarray(np.clip(d, 0, 255).astype(np.uint8))
-
-            # Crop transparent padding so resize fills the target size properly
-            bbox = img.getbbox()
-            if bbox:
-                img = img.crop(bbox)
-
-            self.logo = img
-            print(f"[logo] {n}  original:{raw.size} → cropped:{img.size}")
+            self.logo = Image.open(p).convert('RGBA')
+            print(f"[logo] {n}  {self.logo.size}")
             return
         self.logo = None; print("[logo] none found")
 
@@ -198,8 +179,21 @@ class _State:
                      self.vid.duration - 0.04)
             c  = self.vid.get_frame(vt).astype(np.float32)   # (H, W, 3)
 
+            # ── Contrast + vibrance boost (counters Instagram compression) ───
+            n = c / 255.0
+            # S-curve contrast: pulls shadows darker, highlights brighter
+            n = np.clip((n - 0.5) * 1.15 + 0.5, 0, 1)
+            # Saturation boost: push colours away from grey
+            luma = (0.299*n[:,:,0] + 0.587*n[:,:,1] + 0.114*n[:,:,2])[:,:,None]
+            n = np.clip(luma + (n - luma) * 1.25, 0, 1)
+            # Golden tone — strong warm-gold grade (red+green lift, blue cut)
+            n[:,:,0] = np.clip(n[:,:,0] * 1.12, 0, 1)   # red  ×1.12
+            n[:,:,1] = np.clip(n[:,:,1] * 1.07, 0, 1)   # green ×1.07  (red+green = gold/amber)
+            n[:,:,2] = np.clip(n[:,:,2] * 0.88, 0, 1)   # blue  ×0.88  (cut cool/blue tones)
+            c = n * 255.0
+
             # ── Translucent black base layer (keeps video visible) ───────────
-            c *= 0.48
+            c *= 0.52
 
             # ── Top-to-mid gradient  (strongest at top where text lives) ─────
             # Fades from -35% extra darkness at y=0 down to 0 at y=70% height
@@ -210,6 +204,12 @@ class _State:
             # ── Bottom gradient  (subtle dark strip behind tagline/URL) ──────
             bgrad = np.clip((yi - 0.80) / 0.20, 0, 1) * 0.25
             c    *= (1 - bgrad[:, None, None])
+
+            # ── Additive golden tint (applied after darkening so it shows in shadows)
+            c[:,:,0] = np.clip(c[:,:,0] + 18, 0, 255)  # +18 red
+            c[:,:,1] = np.clip(c[:,:,1] + 10, 0, 255)  # +10 green  → warm gold
+            c[:,:,2] = np.clip(c[:,:,2] -  8, 0, 255)  # − 8 blue   → cut cool
+
 
         elif self.has_t:
             # ── Static texture (panning) ─────────────────────────────────────
@@ -339,7 +339,7 @@ def _frame(t: float, rates: dict, st: _State) -> np.ndarray:
         if p > 0:
             a  = int(255*p)
             dy = int((1-min(p/0.5,1))*28)
-            fh = _fit("GOLD JEWELLERY RATES", avail, 58, W_EB)
+            fh = _fit("GOLD JEWELLERY RATES", avail, 52, W_EB)
             img = _over(img, lambda d,_f=fh,_a=a,_dy=dy:
                 d.text((SAFE_L, TITLE_Y+_dy), "GOLD JEWELLERY RATES",
                        font=_f, fill=(*GOLD,_a)))
@@ -349,7 +349,7 @@ def _frame(t: float, rates: dict, st: _State) -> np.ndarray:
         if p > 0:
             img = _over(img, lambda d,_a=int(255*p):
                 d.text((SAFE_L, SUBT_Y), "TODAY'S RETAIL PRICES  ·  AED PER GRAM",
-                       font=_font(30, W_BOLD), fill=(*WHITE, int(_a * 0.90))))
+                       font=_font(27, W_BOLD), fill=(*WHITE, int(_a * 0.90))))
 
         # Date  (full GOLD colour, no opacity reduction)
         p = _p(*_DATE, t) * ca
@@ -358,7 +358,7 @@ def _frame(t: float, rates: dict, st: _State) -> np.ndarray:
             try:    ds = datetime.fromisoformat(ts).strftime('%d %B %Y').upper()
             except: ds = datetime.now().strftime('%d %B %Y').upper()
             img = _over(img, lambda d,_s=ds,_a=int(255*p):
-                d.text((SAFE_L, DATE_Y), _s, font=_font(32, W_SB), fill=(*GOLD, _a)))
+                d.text((SAFE_L, DATE_Y), _s, font=_font(28, W_SB), fill=(*GOLD, _a)))
 
         # Card background with pulse glow
         p = _p(*_CARD, t) * ca
@@ -374,8 +374,8 @@ def _frame(t: float, rates: dict, st: _State) -> np.ndarray:
                     outline=(*GOLD,_oa), width=1))
 
         # Rate rows
-        fk = _font(58, W_EB)   # karat
-        fp = _font(62, W_EB)   # price
+        fk = _font(52, W_EB)   # karat
+        fp = _font(56, W_EB)   # price
         pad = 28
 
         for i, karat in enumerate(ROWS):
