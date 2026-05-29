@@ -29,7 +29,15 @@ jobs:
       - name: Install Python dependencies
         run: pip install -r requirements.txt
 
-      # ── 5. Write .env from GitHub Secrets ───────────────────────────────────
+      # ── 5. Restore previous rates (for change indicators) ──────────────────
+      - name: Restore previous rates cache
+        uses: actions/cache@v4
+        with:
+          path: last_rates.json
+          key: gold-rates-${{ github.run_number }}
+          restore-keys: gold-rates-
+
+      # ── 7. Write .env from GitHub Secrets ───────────────────────────────────
       - name: Create .env
         run: |
           cat > .env << 'EOF'

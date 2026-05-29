@@ -40,13 +40,39 @@ ABD  = '/System/Library/Fonts/Supplemental/Arial Bold.ttf'
 ARG  = '/System/Library/Fonts/Supplemental/Arial.ttf'
 W_REG, W_SB, W_BOLD, W_EB = 400, 600, 700, 800
 
+# Fonts that support ▲ ▼ — glyphs — bold variants first (macOS → Linux)
+_ARROW_FONT_PATHS = [
+    '/System/Library/Fonts/Supplemental/Arial Bold.ttf',              # macOS bold
+    '/System/Library/Fonts/Supplemental/Arial Unicode.ttf',           # macOS
+    '/System/Library/Fonts/Supplemental/Arial.ttf',                   # macOS fallback
+    '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf',           # Ubuntu bold
+    '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf',                # Ubuntu
+    '/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf',
+    '/usr/share/fonts/truetype/noto/NotoSans-Bold.ttf',
+]
+_ARROW_FC: dict = {}
+
+def _arrow_font(sz: int) -> ImageFont.FreeTypeFont:
+    if sz in _ARROW_FC: return _ARROW_FC[sz]
+    for p in _ARROW_FONT_PATHS:
+        if os.path.exists(p):
+            try:
+                f = ImageFont.truetype(p, sz)
+                _ARROW_FC[sz] = f
+                return f
+            except Exception:
+                continue
+    _ARROW_FC[sz] = ImageFont.load_default()
+    return _ARROW_FC[sz]
+
 # ── Layout ────────────────────────────────────────────────────────────────────
 LOGO_Y        = SAFE_T
 LOGO_CORNER_H = 200          # full uncropped canvas height in corner
 LOGO_INTRO_H  = 400          # full uncropped canvas height for intro / outro
 LOGO_MAX_W    = 700          # max width
 
-TITLE_Y  = LOGO_Y + LOGO_CORNER_H + 30    # ≈ 332
+OFFICIAL_BADGE_H = 36                      # height of OFFICIAL pill beneath logo
+TITLE_Y  = LOGO_Y + LOGO_CORNER_H + OFFICIAL_BADGE_H + 22    # ≈ 428
 SUBT_Y   = TITLE_Y + 82   # space below title (top padding for subtitle)
 DATE_Y   = SUBT_Y  + 62   # space below subtitle (bottom padding)
 CARD_Y   = DATE_Y  + 52
@@ -258,6 +284,29 @@ class _State:
 
 
 # ── helpers ───────────────────────────────────────────────────────────────────
+def _draw_official_badge(img: Image.Image, x: int, y: int, alpha: int) -> Image.Image:
+    """Draw a small 'OFFICIAL' pill with gold border + translucent dark fill."""
+    if alpha <= 0: return img
+    f    = _font(20, W_BOLD)
+    txt  = "OFFICIAL"
+    tw   = _tw(txt, f)
+    pad_x, pad_y = 18, 0
+    bw   = tw + pad_x * 2
+    bh   = OFFICIAL_BADGE_H
+    def _draw(d):
+        # Dark translucent fill
+        d.rounded_rectangle([x, y, x+bw, y+bh], radius=8,
+                             fill=(*( 0,  0,  0), int(0.55 * alpha)))
+        # Gold border
+        d.rounded_rectangle([x, y, x+bw, y+bh], radius=8,
+                             outline=(*GOLD, alpha), width=2)
+        # Gold text, vertically centred
+        bb  = f.getbbox(txt)
+        th  = bb[3] - bb[1]
+        ty_ = y + (bh - th) // 2 - bb[1]
+        d.text((x + pad_x, ty_), txt, font=f, fill=(*GOLD, alpha))
+    return _over(img, _draw)
+
 def _over(base, fn):
     ov = Image.new('RGBA', base.size, (0,0,0,0))
     fn(ImageDraw.Draw(ov))
@@ -278,7 +327,7 @@ def _paste_topleft(img, limg, tx, ty):
 
 
 # ── frame ─────────────────────────────────────────────────────────────────────
-def _frame(t: float, rates: dict, st: _State) -> np.ndarray:
+def _frame(t: float, rates: dict, st: _State, changes: dict = None) -> np.ndarray:
     img  = Image.fromarray(st.bg(t), 'RGB').convert('RGBA')
     avail = SAFE_R - SAFE_L
 
@@ -307,11 +356,13 @@ def _frame(t: float, rates: dict, st: _State) -> np.ndarray:
     elif t < _FADE_OUT[0]:
         # Corner, normal size
         img = _paste_topleft(img, st.logo_img(LOGO_CORNER_H, 1.0), SAFE_L, LOGO_Y)
+        img = _draw_official_badge(img, SAFE_L, LOGO_Y + LOGO_CORNER_H + 4, 255)
 
     elif t < _OUTRO_LOGO[0]:
         # Corner, fading out with content
-        ca = 1.0 - _p(*_FADE_OUT, t)
+        ca  = 1.0 - _p(*_FADE_OUT, t)
         img = _paste_topleft(img, st.logo_img(LOGO_CORNER_H, ca), SAFE_L, LOGO_Y)
+        img = _draw_official_badge(img, SAFE_L, LOGO_Y + LOGO_CORNER_H + 4, int(255*ca))
 
     else:
         # Fly back to centre, grow
@@ -371,9 +422,16 @@ def _frame(t: float, rates: dict, st: _State) -> np.ndarray:
                     outline=(*GOLD,_oa), width=1))
 
         # Rate rows
-        fk = _font(52, W_EB)   # karat
-        fp = _font(56, W_EB)   # price
+        fk  = _font(52, W_EB)   # karat
+        fp  = _font(56, W_EB)   # price
         pad = 28
+
+        # Badge: bold arrow font (larger to match visual height of numbers) + Outfit Bold numbers
+        fch     = _arrow_font(54)       # arrow glyph — oversized so visual triangle ≈ number height
+        fbn     = _font(36, W_BOLD)     # Outfit Bold for the number
+        BADGE_W = _tw("▼", fch) + 12 + _tw("99.99", fbn) + 44
+        BADGE_H   = 74
+        BADGE_GAP = 20
 
         for i, karat in enumerate(ROWS):
             rs = _ROW_BASE + i * _ROW_GAP
@@ -392,24 +450,72 @@ def _frame(t: float, rates: dict, st: _State) -> np.ndarray:
             rt    = CARD_Y + 25 + i*ROW_H
             ty    = rt + (ROW_H-56)//2
 
-            # Use FINAL value width for stable right-alignment
-            final_s = f"AED {rates[karat]:,.2f}"
-            disp_s  = f"AED {disp:,.2f}"
-            pw      = _tw(final_s, fp)
-            kx      = SAFE_L + pad + dx
-            px_     = SAFE_R  - pad - pw + dx
+            # Badge right edge aligns with SAFE_R - pad
+            badge_rx = SAFE_R - pad           # badge right x
+            badge_lx = badge_rx - BADGE_W     # badge left x
+            badge_ty = rt + (ROW_H - BADGE_H) // 2
+            badge_by = badge_ty + BADGE_H
+
+            # Price right-aligns to left of badge (with gap)
+            final_s  = f"AED {rates[karat]:,.2f}"
+            disp_s   = f"AED {disp:,.2f}"
+            pw       = _tw(final_s, fp)
+            price_rx = badge_lx - BADGE_GAP   # price right edge
+            kx       = SAFE_L + pad + dx
+            px_      = price_rx - pw + dx
+
+            # Change badge data for this karat
+            chg = changes.get(karat) if changes else None
 
             def _row(d,
                      _k=karat, _ds=disp_s,
                      _kx=kx, _px=px_, _ty=ty, _rt=rt,
-                     _fk=fk, _fp=fp, _a=a, _i=i):
+                     _fk=fk, _fp=fp, _fch=fch, _fbn=fbn, _a=a, _i=i,
+                     _blx=badge_lx, _bty=badge_ty, _brx=badge_rx, _bby=badge_by,
+                     _chg=chg):
                 # Gold left accent stripe
                 d.rectangle([SAFE_L+1, _rt+14, SAFE_L+5, _rt+ROW_H-14],
                              fill=(*GOLD, _a))
                 # Karat label
-                d.text((_kx, _ty), _k,  font=_fk, fill=(*GOLD, _a))
+                d.text((_kx, _ty), _k, font=_fk, fill=(*GOLD, _a))
                 # Price (counting up)
                 d.text((_px, _ty), _ds, font=_fp, fill=(*WHITE, _a))
+                # Change badge (only when change data available)
+                if _chg is not None:
+                    if _chg > 0:
+                        col    = (39, 174, 96)
+                        arrow  = "▲"
+                        num_s  = f"{_chg:,.2f}"
+                    elif _chg < 0:
+                        col    = (160, 60, 55)
+                        arrow  = "▼"
+                        num_s  = f"{abs(_chg):,.2f}"
+                    else:
+                        col    = (110, 110, 110)
+                        arrow  = "—"
+                        num_s  = "0.00"
+
+                    # Pill: dark translucent, no border
+                    d.rounded_rectangle(
+                        [_blx, _bty, _brx, _bby], radius=10,
+                        fill=(0, 0, 0, int(_a * 0.50))
+                    )
+
+                    # Layout: arrow (large bold) + gap + number (Outfit Bold)
+                    aw    = _tw(arrow, _fch)
+                    nw    = _tw(num_s, _fbn)
+                    gap   = 10
+                    ox    = _blx + ((_brx - _blx) - aw - gap - nw) // 2
+                    pmid  = (_bty + _bby) // 2
+
+                    # Each glyph centred to pill midpoint via its own bbox
+                    abb = _fch.getbbox(arrow)
+                    d.text((ox, pmid - (abb[1] + abb[3]) // 2),
+                           arrow, font=_fch, fill=(*col, _a))
+
+                    nbb = _fbn.getbbox(num_s)
+                    d.text((ox + aw + gap, pmid - (nbb[1] + nbb[3]) // 2),
+                           num_s, font=_fbn, fill=(*col, _a))
                 # Separator
                 if _i < len(ROWS)-1:
                     sy = CARD_Y+25+(_i+1)*ROW_H
@@ -530,12 +636,13 @@ def _make_audio(duration: float = DURATION, sr: int = 44100) -> np.ndarray:
 
 
 # ── public API ────────────────────────────────────────────────────────────────
-def generate_video(rates: dict, output_path: str, bg_index: int = -1) -> str:
+def generate_video(rates: dict, output_path: str,
+                   bg_index: int = -1, changes: dict = None) -> str:
     os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
     st = _State(bg_index=bg_index)
 
     def make_frame(t: float) -> np.ndarray:
-        return _frame(t, rates, st)
+        return _frame(t, rates, st, changes)
 
     clip = mpy.VideoClip(make_frame, duration=DURATION)
 

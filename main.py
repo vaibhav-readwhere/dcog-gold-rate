@@ -14,6 +14,7 @@ from datetime import datetime
 import config
 from fetcher import fetch_gold_rates
 from generator import generate_video
+from rates_store import load_previous_rates, save_rates, compute_changes
 
 SAMPLE_RATES = {
     '24K': 644.25,
@@ -32,6 +33,13 @@ def main():
     parser.add_argument('--bg-index', type=int, default=-1,
                         help='Force a specific background video (0-based index). Default: rotate by day.')
     args = parser.parse_args()
+
+    # ── Load previous rates for change indicators ────────────────────────────
+    prev_rates = load_previous_rates()
+    if prev_rates:
+        print(f"Previous rates loaded (saved {prev_rates.get('_saved_at', 'unknown')})")
+    else:
+        print("No previous rates found — change indicators will be hidden on first run.")
 
     # ── Fetch rates ───────────────────────────────────────────────────────────
     if args.mock:
@@ -60,10 +68,15 @@ def main():
             password = config.API_PASSWORD,
         )
 
+    # ── Compute changes ───────────────────────────────────────────────────────
+    changes = compute_changes(rates, prev_rates)
+
     # ── Print rates ───────────────────────────────────────────────────────────
     print("\nGold rates (AED/gram):")
     for karat in ['24K', '22K', '21K', '18K', '14K']:
-        print(f"  {karat} Gold : AED {rates[karat]:,.2f}")
+        chg = changes.get(karat)
+        chg_str = f"  ({'+' if chg >= 0 else ''}{chg:,.2f})" if chg is not None else "  (no prev)"
+        print(f"  {karat} Gold : AED {rates[karat]:,.2f}{chg_str}")
     print(f"  Timestamp  : {rates.get('timestamp', 'n/a')}")
 
     if args.dry_run:
@@ -79,8 +92,12 @@ def main():
         output_path = os.path.join(config.OUTPUT_DIR, f'gold_rates_{date_tag}.mp4')
 
     print(f"\nGenerating video → {output_path}")
-    generate_video(rates, output_path, bg_index=args.bg_index)
+    generate_video(rates, output_path, bg_index=args.bg_index, changes=changes)
     print(f"\nDone: {output_path}")
+
+    # ── Save rates for tomorrow's comparison ─────────────────────────────────
+    if not args.mock:
+        save_rates(rates)
 
 
 if __name__ == '__main__':
