@@ -2,8 +2,8 @@
 Animated Gold Rates Reel — 1080×1920 @ 24 fps
 Structure:
   0.0 – 2.6   INTRO    : logo fades-in centre (large) → slides to corner (small)
-  2.6 – 10.5  CONTENT  : title + rates appear with counter animation, bg pans
-  10.5 – 13.0 OUTRO    : content fades, logo flies back to centre + URL
+  2.6 – 14.5  CONTENT  : title + rates appear, hold ~5s so viewers can read
+  14.5 – 18.0 OUTRO    : content fades, logo flies back to centre + URL
 """
 import math, os
 from datetime import datetime
@@ -21,7 +21,7 @@ except ImportError:
 VIDEO_W  = 1080
 VIDEO_H  = 1920
 FPS      = 24
-DURATION = 13.0
+DURATION = 18.0
 
 # ── Instagram safe zone ───────────────────────────────────────────────────────
 SAFE_T, SAFE_B, SAFE_L, SAFE_R = 170, 1530, 95, 875
@@ -95,9 +95,9 @@ _ROW_GAP     = 0.52           # seconds between rows
 _ROW_DUR     = 0.40
 _TAG         = (_ROW_BASE + len(ROWS)*_ROW_GAP + 0.1,
                 _ROW_BASE + len(ROWS)*_ROW_GAP + 0.7)
-_FADE_OUT    = (10.2, 11.1)   # content fades out
-_OUTRO_LOGO  = (10.8, 12.2)   # logo returns centre
-_URL         = (11.4, 12.6)   # website url
+_FADE_OUT    = (14.5, 15.5)   # content fades out  (~5s hold after last row)
+_OUTRO_LOGO  = (15.2, 16.8)   # logo returns centre
+_URL         = (16.0, 17.5)   # website url
 
 
 # ── Font ──────────────────────────────────────────────────────────────────────
@@ -284,27 +284,27 @@ class _State:
 
 
 # ── helpers ───────────────────────────────────────────────────────────────────
-def _draw_official_badge(img: Image.Image, x: int, y: int, alpha: int) -> Image.Image:
-    """Draw a small 'OFFICIAL' pill with gold border + translucent dark fill."""
+def _draw_official_badge(img: Image.Image, x: int, y: int, alpha: int,
+                         logo_w: int = 0) -> Image.Image:
+    """Draw 'OFFICIAL GOLD RATE' pill — width matches the logo above."""
     if alpha <= 0: return img
-    f    = _font(20, W_BOLD)
-    txt  = "OFFICIAL"
-    tw   = _tw(txt, f)
-    pad_x, pad_y = 18, 0
-    bw   = tw + pad_x * 2
-    bh   = OFFICIAL_BADGE_H
+    f   = _font(20, W_BOLD)
+    txt = "OFFICIAL GOLD RATE"
+    tw  = _tw(txt, f)
+    bh  = OFFICIAL_BADGE_H
+    # Match badge width to the logo rendered width; fall back to text+padding
+    bw  = logo_w if logo_w > tw + 36 else tw + 36
     def _draw(d):
-        # Dark translucent fill
         d.rounded_rectangle([x, y, x+bw, y+bh], radius=8,
-                             fill=(*( 0,  0,  0), int(0.55 * alpha)))
-        # Gold border
+                             fill=(0, 0, 0, int(0.55 * alpha)))
         d.rounded_rectangle([x, y, x+bw, y+bh], radius=8,
                              outline=(*GOLD, alpha), width=2)
-        # Gold text, vertically centred
         bb  = f.getbbox(txt)
         th  = bb[3] - bb[1]
+        # Centre text horizontally inside pill
+        tx_ = x + (bw - tw) // 2
         ty_ = y + (bh - th) // 2 - bb[1]
-        d.text((x + pad_x, ty_), txt, font=f, fill=(*GOLD, alpha))
+        d.text((tx_, ty_), txt, font=f, fill=(*GOLD, alpha))
     return _over(img, _draw)
 
 def _over(base, fn):
@@ -356,13 +356,15 @@ def _frame(t: float, rates: dict, st: _State, changes: dict = None) -> np.ndarra
     elif t < _FADE_OUT[0]:
         # Corner, normal size
         img = _paste_topleft(img, st.logo_img(LOGO_CORNER_H, 1.0), SAFE_L, LOGO_Y)
-        img = _draw_official_badge(img, SAFE_L, LOGO_Y + LOGO_CORNER_H + 4, 255)
+        _lw = int(st.logo.size[0] * LOGO_CORNER_H / st.logo.size[1]) if st.logo else LOGO_CORNER_H
+        img = _draw_official_badge(img, SAFE_L, LOGO_Y + LOGO_CORNER_H + 4, 255, logo_w=_lw)
 
     elif t < _OUTRO_LOGO[0]:
         # Corner, fading out with content
         ca  = 1.0 - _p(*_FADE_OUT, t)
         img = _paste_topleft(img, st.logo_img(LOGO_CORNER_H, ca), SAFE_L, LOGO_Y)
-        img = _draw_official_badge(img, SAFE_L, LOGO_Y + LOGO_CORNER_H + 4, int(255*ca))
+        _lw = int(st.logo.size[0] * LOGO_CORNER_H / st.logo.size[1]) if st.logo else LOGO_CORNER_H
+        img = _draw_official_badge(img, SAFE_L, LOGO_Y + LOGO_CORNER_H + 4, int(255*ca), logo_w=_lw)
 
     else:
         # Fly back to centre, grow
