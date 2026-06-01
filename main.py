@@ -14,7 +14,7 @@ from datetime import datetime
 import config
 from fetcher import fetch_gold_rates
 from generator import generate_video
-from rates_store import load_previous_rates, save_rates, compute_changes
+from rates_store import update_and_get_previous, compute_changes
 
 SAMPLE_RATES = {
     '24K': 644.25,
@@ -34,12 +34,6 @@ def main():
                         help='Force a specific background video (0-based index). Default: rotate by day.')
     args = parser.parse_args()
 
-    # ── Load previous rates for change indicators ────────────────────────────
-    prev_rates = load_previous_rates()
-    if prev_rates:
-        print(f"Previous rates loaded (saved {prev_rates.get('_saved_at', 'unknown')})")
-    else:
-        print("No previous rates found — change indicators will be hidden on first run.")
 
     # ── Fetch rates ───────────────────────────────────────────────────────────
     if args.mock:
@@ -68,7 +62,13 @@ def main():
             password = config.API_PASSWORD,
         )
 
-    # ── Compute changes ───────────────────────────────────────────────────────
+    # ── Persist rates and compute changes vs previous trading day ────────────
+    # --mock runs never touch last_rates.json so test runs can't corrupt real data
+    if args.mock:
+        prev_rates = None
+        print("--mock: skipping rate store (change indicators hidden)")
+    else:
+        prev_rates = update_and_get_previous(rates, rates.get('timestamp', ''))
     changes = compute_changes(rates, prev_rates)
 
     # ── Print rates ───────────────────────────────────────────────────────────
@@ -95,9 +95,6 @@ def main():
     generate_video(rates, output_path, bg_index=args.bg_index, changes=changes)
     print(f"\nDone: {output_path}")
 
-    # ── Save rates for tomorrow's comparison ─────────────────────────────────
-    if not args.mock:
-        save_rates(rates)
 
 
 if __name__ == '__main__':
