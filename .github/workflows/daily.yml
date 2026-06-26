@@ -2,7 +2,7 @@ name: Daily Gold Rates Video
 
 on:
   schedule:
-    - cron: '0 4 * * *'   # 8:00 AM UAE time (UTC+4)
+    - cron: '0 7 * * *'   # 11:00 AM UAE time (UTC+4)
   workflow_dispatch:        # allow manual trigger from GitHub UI for testing
 
 jobs:
@@ -37,7 +37,7 @@ jobs:
           key: gold-rates-${{ github.run_number }}
           restore-keys: gold-rates-
 
-      # ── 7. Write .env from GitHub Secrets ───────────────────────────────────
+      # ── 6. Write .env from GitHub Secrets ───────────────────────────────────
       - name: Create .env
         run: |
           cat > .env << 'EOF'
@@ -52,15 +52,16 @@ jobs:
           OUTPUT_DIR=output
           EOF
 
-      # ── 6. Login to get fresh Bearer token (expires every 24h) ──────────────
+      # ── 7. Login to get fresh Bearer token (expires every 24h) ──────────────
       - name: Authenticate with Gold API
         run: python auth.py
 
-      # ── 7. Generate video with live rates ────────────────────────────────────
+      # ── 8. Generate video with live rates ────────────────────────────────────
+      #       main.py also saves today's rates as tomorrow's comparison baseline
       - name: Generate video
         run: python main.py
 
-      # ── 8. Upload to Cloudinary, delete local file ───────────────────────────
+      # ── 9. Upload to Cloudinary ───────────────────────────────────────────────
       - name: Upload to Cloudinary
         run: |
           python - << 'EOF'
@@ -70,13 +71,12 @@ jobs:
           if not videos:
               raise FileNotFoundError("No MP4 found in output/")
           url = upload_video(videos[0])
-          # Save URL for next step
           with open("cloudinary_url.txt", "w") as f:
               f.write(url)
           print(f"Video URL saved: {url}")
           EOF
 
-      # ── 9. TODO: Post to Instagram (Phase 3 — needs Instagram token) ─────────
+      # ── 10. TODO: Post to Instagram (Phase 3 — needs Instagram token) ─────────
       # - name: Post to Instagram
       #   run: python post_instagram.py
       #   env:
