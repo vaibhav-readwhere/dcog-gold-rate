@@ -4,8 +4,8 @@
 # Generated videos
 output/
 
-# Large unused asset
-assets/dubai-background-video.mp4
+# Background videos (large binaries — store separately)
+assets/dubai-background-video*.mp4
 
 # Python cache
 __pycache__/
