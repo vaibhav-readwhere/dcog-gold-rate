@@ -5,6 +5,9 @@ on:
     - cron: '0 7 * * *'   # 11:00 AM UAE time (UTC+4)
   workflow_dispatch:        # allow manual trigger from GitHub UI for testing
 
+permissions:
+  contents: write           # needed to commit last_rates.json back to repo
+
 jobs:
   generate-and-post:
     runs-on: ubuntu-latest
@@ -29,15 +32,7 @@ jobs:
       - name: Install Python dependencies
         run: pip install -r requirements.txt
 
-      # ── 5. Restore previous rates (for change indicators) ──────────────────
-      - name: Restore previous rates cache
-        uses: actions/cache@v4
-        with:
-          path: last_rates.json
-          key: gold-rates-${{ github.run_number }}
-          restore-keys: gold-rates-
-
-      # ── 6. Write .env from GitHub Secrets ───────────────────────────────────
+      # ── 5. Write .env from GitHub Secrets ───────────────────────────────────
       - name: Create .env
         run: |
           cat > .env << 'EOF'
@@ -52,14 +47,25 @@ jobs:
           OUTPUT_DIR=output
           EOF
 
-      # ── 7. Login to get fresh Bearer token (expires every 24h) ──────────────
+      # ── 6. Login to get fresh Bearer token (expires every 24h) ──────────────
       - name: Authenticate with Gold API
         run: python auth.py
 
-      # ── 8. Generate video with live rates ────────────────────────────────────
-      #       main.py also saves today's rates as tomorrow's comparison baseline
+      # ── 7. Generate video with live rates ────────────────────────────────────
+      #       main.py saves today's rates into last_rates.json as tomorrow's baseline
       - name: Generate video
         run: python main.py
+
+      # ── 8. Commit last_rates.json back to repo ───────────────────────────────
+      #       This is the source of truth for tomorrow's change indicators.
+      #       [skip ci] prevents this commit from triggering another workflow run.
+      - name: Save rates snapshot to repo
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add last_rates.json
+          git diff --cached --quiet || git commit -m "chore: daily rate snapshot $(date -u +%Y-%m-%d) [skip ci]"
+          git push
 
       # ── 9. Upload to Cloudinary ───────────────────────────────────────────────
       - name: Upload to Cloudinary
